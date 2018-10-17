@@ -1,9 +1,11 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform/states"
 	"github.com/mitchellh/cli"
 )
 
@@ -22,7 +24,7 @@ func (c *StateListCommand) Run(args []string) int {
 
 	cmdFlags := c.Meta.flagSet("state list")
 	cmdFlags.StringVar(&c.Meta.statePath, "state", DefaultStateFilename, "path")
-	//lookupId := cmdFlags.String("id", "", "Restrict output to paths with a resource having the specified ID.")
+	lookupId := cmdFlags.String("id", "", "Restrict output to paths with a resource having the specified ID.")
 	if err := cmdFlags.Parse(args); err != nil {
 		return cli.RunResultHelp
 	}
@@ -35,30 +37,26 @@ func (c *StateListCommand) Run(args []string) int {
 		return 1
 	}
 
-	env := c.Workspace()
 	// Get the state
-	state, err := b.StateMgr(env)
+	env := c.Workspace()
+	stateMgr, err := b.StateMgr(env)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
 		return 1
 	}
 
-	if err := state.RefreshState(); err != nil {
+	if err := stateMgr.RefreshState(); err != nil {
 		c.Ui.Error(fmt.Sprintf("Failed to load state: %s", err))
 		return 1
 	}
 
-	stateReal := state.State()
-	if stateReal == nil {
+	state := stateMgr.State()
+	if state == nil {
 		c.Ui.Error(fmt.Sprintf(errStateNotFound))
 		return 1
 	}
 
-	// FIXME: update this for the new state types
-	c.Ui.Error("state list command not yet updated for new state types")
-	return 1
-
-	/*filter := &terraform.StateFilter{State: stateReal}
+	filter := &states.Filter{State: state}
 	results, err := filter.Filter(args...)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf(errStateFilter, err))
@@ -66,12 +64,30 @@ func (c *StateListCommand) Run(args []string) int {
 	}
 
 	for _, result := range results {
-		if i, ok := result.Value.(*terraform.InstanceState); ok {
-			if *lookupId == "" || i.ID == *lookupId {
-				c.Ui.Output(result.Address)
+		if is, ok := result.Value.(*states.ResourceInstance); ok {
+			// If we search a specific ID, we need to unmarshal the
+			// attributes and match the ID from the resource.
+			if *lookupId != "" {
+				id := ""
+				if is.HasCurrent() {
+					attrs := make(map[string]interface{})
+					err = json.Unmarshal(is.Current.AttrsJSON, &attrs)
+					if err != nil {
+						c.Ui.Error(fmt.Sprintf("Failed to load attribute: %s", err))
+						return 1
+					}
+					id, _ = attrs["id"].(string)
+				}
+
+				// Continue if the ID's don't match.
+				if *lookupId != id {
+					continue
+				}
 			}
+
+			c.Ui.Output(result.Address)
 		}
-	}*/
+	}
 
 	return 0
 }

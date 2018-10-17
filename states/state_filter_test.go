@@ -1,13 +1,15 @@
-package terraform
+package states
 
 import (
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/hashicorp/terraform/states/statefile"
 )
 
-func TestStateFilterFilter(t *testing.T) {
+func TestFilterFilter(t *testing.T) {
 	cases := map[string]struct {
 		State    string
 		Filters  []string
@@ -137,14 +139,14 @@ func TestStateFilterFilter(t *testing.T) {
 			t.Fatalf("%q: err: %s", n, err)
 		}
 
-		state, err := ReadState(f)
+		stateFile, err := statefile.Read(f)
 		f.Close()
 		if err != nil {
 			t.Fatalf("%q: err: %s", n, err)
 		}
 
 		// Create the filter
-		filter := &StateFilter{State: state}
+		filter := &Filter{State: stateFile.State}
 
 		// Filter!
 		results, err := filter.Filter(tc.Filters...)
